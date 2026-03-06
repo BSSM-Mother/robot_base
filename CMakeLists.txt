@@ -27,6 +27,11 @@ ament_target_dependencies(
 install(TARGETS wheel_controller
   DESTINATION lib/${PROJECT_NAME})
 
+# Python 스크립트 설치 (buzzer_node)
+install(PROGRAMS scripts/buzzer_node.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME buzzer_node)
+
 install(DIRECTORY include/
   DESTINATION include)
 
