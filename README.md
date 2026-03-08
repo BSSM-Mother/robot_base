@@ -16,9 +16,9 @@
 ## 📡 토픽 및 파라미터
 
 ### 구독 토픽 (입력)
-- **`cmd_vel_raw`** (`geometry_msgs/Twist`)
-  - `linear.x`: 전진 속도 (-1.0 ~ 1.0)
-  - `angular.z`: 회전 속도 (-1.5 ~ 1.5)
+- **`cmd_vel`** (`geometry_msgs/Twist`)
+  - `linear.x`: 선속도 (-0.8 ~ 0.8 m/s)
+  - `angular.z`: 각속도 (-1.5 ~ 1.5 rad/s)
 
 ### 발행 토픽 (출력)
 - 시리얼 패킷 → 모터 드라이버
