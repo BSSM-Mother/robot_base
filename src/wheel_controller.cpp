@@ -10,7 +10,8 @@
 #include <unistd.h>
 
 namespace {
-constexpr uint8_t kDirStop  = 0;
+constexpr uint8_t kSpeedStop = 0;
+constexpr uint8_t kDirStop   = 0;
 // 왼쪽/오른쪽 모터가 반대로 장착되어 방향 코드가 서로 엇갈림
 constexpr uint8_t kLeftFwd  = 1;
 constexpr uint8_t kLeftRev  = 2;
@@ -50,7 +51,14 @@ WheelController::WheelController()
       has_cmd_(false),
       last_speed_(0),
       last_left_dir_(kDirStop),
-      last_right_dir_(kDirStop) {
+      last_right_dir_(kDirStop),
+      brake_time_(rclcpp::Time(0, 0, RCL_ROS_TIME)),
+      is_braking_(false),
+      brake_left_dir_(kDirStop),
+      brake_right_dir_(kDirStop),
+      log_sent_speed_(255),  // 초기값을 불가능한 값으로 → 첫 전송 시 반드시 출력
+      log_sent_left_(255),
+      log_sent_right_(255) {
   cmd_vel_sub_ = this->create_subscription<geometry_msgs::msg::Twist>(
       "cmd_vel", 10,
       std::bind(&WheelController::cmdVelCallback, this, std::placeholders::_1));
@@ -71,7 +79,7 @@ WheelController::~WheelController() {
   // 노드 종료 시 정지 명령을 여러 번 전송
   if (serial_fd_ >= 0) {
     for (int i = 0; i < 5; ++i) {
-      sendMotorCommand(0, kDirStop, kDirStop);
+      sendMotorCommand(kSpeedStop, kDirStop, kDirStop);
     }
     ::tcdrain(serial_fd_);  // 버퍼 flush 후 닫기
   }
@@ -90,8 +98,8 @@ void WheelController::timerCallback() {
     RCLCPP_INFO(this->get_logger(),
       "[TIMEOUT] cmd_vel 없음 → 정지 (last_speed=%u, elapsed=%.0fms)",
       last_speed_, (now - last_cmd_time_).nanoseconds() / 1e6);
-    last_speed_ = 0;
-    last_left_dir_ = kDirStop;
+    last_speed_     = kSpeedStop;
+    last_left_dir_  = kDirStop;
     last_right_dir_ = kDirStop;
     has_cmd_ = false;
   }
@@ -113,17 +121,30 @@ void WheelController::updateCommandFromTwist(double linear, double angular) {
   const double max_mag = std::max(std::abs(left_speed), std::abs(right_speed));
   const uint8_t pwm = speedToPwm(max_mag);
 
-  // 정지→움직임 전환 감지: 킥스타트 타이머 시작
+  // 정지→움직임 전환: 킥스타트, 브레이크 취소
   if (last_speed_ == 0 && pwm > 0) {
     kickstart_time_ = this->now();
+    is_braking_ = false;
     RCLCPP_INFO(this->get_logger(), "[KICKSTART] 시작 (pwm=%u → boost=%u for %dms)",
       pwm, KICKSTART_PWM_, KICKSTART_DURATION_MS_);
   }
 
-  if (pwm == 0) {
-    last_left_dir_ = kDirStop;
+  // 움직임→정지 전환: 브레이크 시작
+  if (last_speed_ > 0 && pwm == 0) {
+    brake_time_ = this->now();
+    is_braking_ = true;
+    brake_left_dir_  = (last_left_dir_  == kLeftFwd)  ? kLeftRev  :
+                       (last_left_dir_  == kLeftRev)   ? kLeftFwd  : kDirStop;
+    brake_right_dir_ = (last_right_dir_ == kRightFwd) ? kRightRev :
+                       (last_right_dir_ == kRightRev)  ? kRightFwd : kDirStop;
+    RCLCPP_INFO(this->get_logger(), "[BRAKE] 시작 (boost=%u for %dms)",
+      BRAKE_PWM_, BRAKE_DURATION_MS_);
+  }
+
+  if (pwm == kSpeedStop) {
+    last_left_dir_  = kDirStop;
     last_right_dir_ = kDirStop;
-    last_speed_ = 0;
+    last_speed_     = kSpeedStop;
   } else {
     last_left_dir_ = left_dir;
     last_right_dir_ = right_dir;
@@ -160,20 +181,39 @@ void WheelController::sendMotorCommand(uint8_t speed, uint8_t left_dir, uint8_t 
 
   // 킥스타트: 정지→움직임 직후 KICKSTART_DURATION_MS_ 동안 부스트
   uint8_t effective_speed = speed;
+  uint8_t effective_left  = left_dir;
+  uint8_t effective_right = right_dir;
+  
   if (speed > 0) {
     const int64_t elapsed_ms = (this->now() - kickstart_time_).nanoseconds() / 1000000LL;
     if (elapsed_ms < KICKSTART_DURATION_MS_) {
       effective_speed = std::max(speed, KICKSTART_PWM_);
     }
+  } else if (is_braking_) {
+    // 브레이크: 움직임→정지 직후 BRAKE_DURATION_MS_ 동안 역방향 PWM
+    const int64_t elapsed_ms = (this->now() - brake_time_).nanoseconds() / 1000000LL;
+    if (elapsed_ms < BRAKE_DURATION_MS_) {
+      effective_speed = BRAKE_PWM_;
+      effective_left  = brake_left_dir_;
+      effective_right = brake_right_dir_;
+    } else {
+      is_braking_ = false;
+    }
   }
 
-  RCLCPP_INFO(this->get_logger(),
-    "[MOTOR] send=%u (raw=%u) L=%u R=%u",
-    effective_speed, speed, left_dir, right_dir);
+  if (effective_speed != log_sent_speed_ ||
+      effective_left   != log_sent_left_  ||
+      effective_right  != log_sent_right_) {
+    RCLCPP_INFO(this->get_logger(), "[MOTOR] send=%u (raw=%u) L=%u R=%u",
+      effective_speed, speed, effective_left, effective_right);
+    log_sent_speed_ = effective_speed;
+    log_sent_left_  = effective_left;
+    log_sent_right_ = effective_right;
+  }
 
   char buffer[64];
-  const int len = std::snprintf(buffer, sizeof(buffer), "%u,%u,%u\r\n", effective_speed, left_dir,
-                                right_dir);
+  const int len = std::snprintf(buffer, sizeof(buffer), "%u,%u,%u\r\n", effective_speed,
+                                effective_left, effective_right);
   if (len <= 0) {
     return;
   }
