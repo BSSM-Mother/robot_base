@@ -45,8 +45,8 @@ private:
   uint8_t last_right_dir_;
 
   // 정지→움직임 전환 시 킥스타트 부스트
-  static constexpr int     KICKSTART_DURATION_MS_ = 350;
-  static constexpr uint8_t KICKSTART_PWM_         = 200;
+  static constexpr int     KICKSTART_DURATION_MS_ = 200;
+  static constexpr uint8_t KICKSTART_PWM_         = 150;
 };
 
 #endif  // ROBOT_BASE__WHEEL_CONTROLLER_HPP_
