@@ -10,9 +10,12 @@
 #include <unistd.h>
 
 namespace {
-constexpr uint8_t kDirStop = 0;
-constexpr uint8_t kDirFwd = 2;
-constexpr uint8_t kDirRev = 1;
+constexpr uint8_t kDirStop  = 0;
+// 왼쪽/오른쪽 모터가 반대로 장착되어 방향 코드가 서로 엇갈림
+constexpr uint8_t kLeftFwd  = 1;
+constexpr uint8_t kLeftRev  = 2;
+constexpr uint8_t kRightFwd = 2;
+constexpr uint8_t kRightRev = 1;
 
 speed_t toTermiosBaud(int baud_rate) {
   switch (baud_rate) {
@@ -98,8 +101,10 @@ void WheelController::updateCommandFromTwist(double linear, double angular) {
   const double left_speed = linear + (angular * half_track);
   const double right_speed = linear - (angular * half_track);
 
-  const uint8_t left_dir = directionFromSpeed(left_speed);
-  const uint8_t right_dir = directionFromSpeed(right_speed);
+  const uint8_t left_dir = (std::abs(left_speed) <= deadband_) ? kDirStop :
+                           (left_speed >= 0.0) ? kLeftFwd : kLeftRev;
+  const uint8_t right_dir = (std::abs(right_speed) <= deadband_) ? kDirStop :
+                            (right_speed >= 0.0) ? kRightFwd : kRightRev;
 
   const double max_mag = std::max(std::abs(left_speed), std::abs(right_speed));
   const uint8_t pwm = speedToPwm(max_mag);
