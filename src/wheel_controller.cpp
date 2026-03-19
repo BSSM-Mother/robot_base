@@ -43,6 +43,7 @@ WheelController::WheelController()
       deadband_(this->declare_parameter<double>("deadband", 0.02)),
       send_rate_hz_(this->declare_parameter<double>("send_rate_hz", 20.0)),
       cmd_timeout_ms_(this->declare_parameter<int>("cmd_timeout_ms", 300)),
+      min_pwm_(this->declare_parameter<int>("min_pwm", 80)),
       serial_fd_(-1),
       last_cmd_time_(this->now()),
       kickstart_time_(rclcpp::Time(0, 0, RCL_ROS_TIME)),
@@ -143,7 +144,8 @@ uint8_t WheelController::speedToPwm(double speed) const {
   const double clamped = std::min(mag, max_linear_speed_);
   const double ratio = (max_linear_speed_ <= 0.0) ? 0.0 : (clamped / max_linear_speed_);
   const int pwm = static_cast<int>(std::lround(ratio * 255.0));
-  return static_cast<uint8_t>(std::clamp(pwm, 0, 255));
+  const int effective = (pwm > 0) ? std::max(pwm, min_pwm_) : 0;
+  return static_cast<uint8_t>(std::clamp(effective, 0, 255));
 }
 
 void WheelController::sendMotorCommand(uint8_t speed, uint8_t left_dir, uint8_t right_dir) {

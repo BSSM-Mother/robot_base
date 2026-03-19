@@ -33,6 +33,7 @@ private:
   double deadband_;
   double send_rate_hz_;
   int cmd_timeout_ms_;
+  int min_pwm_;  // 움직임이 있을 때 최소 PWM (너무 낮으면 모터가 못 돌아감)
 
   int serial_fd_;
 
