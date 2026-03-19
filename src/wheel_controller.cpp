@@ -33,7 +33,7 @@ speed_t toTermiosBaud(int baud_rate) {
 
 WheelController::WheelController()
     : rclcpp::Node("wheel_controller"),
-      serial_port_(this->declare_parameter<std::string>("serial_port", "/dev/ttyUSB0")),
+      serial_port_(this->declare_parameter<std::string>("serial_port", "/dev/ttyAMA0")),
       baud_rate_(this->declare_parameter<int>("baud_rate", 115200)),
       wheel_distance_(this->declare_parameter<double>("wheel_distance", 0.25)),
       max_linear_speed_(this->declare_parameter<double>("max_linear_speed", 0.5)),
