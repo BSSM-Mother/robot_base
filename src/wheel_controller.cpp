@@ -42,6 +42,7 @@ WheelController::WheelController()
       cmd_timeout_ms_(this->declare_parameter<int>("cmd_timeout_ms", 300)),
       serial_fd_(-1),
       last_cmd_time_(this->now()),
+      kickstart_time_(rclcpp::Time(0, 0, RCL_ROS_TIME)),
       has_cmd_(false),
       last_speed_(0),
       last_left_dir_(kDirStop),
@@ -63,6 +64,13 @@ WheelController::WheelController()
 }
 
 WheelController::~WheelController() {
+  // 노드 종료 시 정지 명령을 여러 번 전송
+  if (serial_fd_ >= 0) {
+    for (int i = 0; i < 5; ++i) {
+      sendMotorCommand(0, kDirStop, kDirStop);
+    }
+    ::tcdrain(serial_fd_);  // 버퍼 flush 후 닫기
+  }
   closeSerialPort();
 }
 
@@ -95,6 +103,11 @@ void WheelController::updateCommandFromTwist(double linear, double angular) {
 
   const double max_mag = std::max(std::abs(left_speed), std::abs(right_speed));
   const uint8_t pwm = speedToPwm(max_mag);
+
+  // 정지→움직임 전환 감지: 킥스타트 타이머 시작
+  if (last_speed_ == 0 && pwm > 0) {
+    kickstart_time_ = this->now();
+  }
 
   if (pwm == 0) {
     last_left_dir_ = kDirStop;
@@ -133,8 +146,17 @@ void WheelController::sendMotorCommand(uint8_t speed, uint8_t left_dir, uint8_t 
     return;
   }
 
+  // 킥스타트: 정지→움직임 직후 350ms 동안 최소 200 PWM으로 부스트
+  uint8_t effective_speed = speed;
+  if (speed > 0) {
+    const int64_t elapsed_ms = (this->now() - kickstart_time_).nanoseconds() / 1000000LL;
+    if (elapsed_ms < KICKSTART_DURATION_MS_) {
+      effective_speed = std::max(speed, KICKSTART_PWM_);
+    }
+  }
+
   char buffer[64];
-  const int len = std::snprintf(buffer, sizeof(buffer), "%u,%u,%u\r\n", speed, left_dir,
+  const int len = std::snprintf(buffer, sizeof(buffer), "%u,%u,%u\r\n", effective_speed, left_dir,
                                 right_dir);
   if (len <= 0) {
     return;

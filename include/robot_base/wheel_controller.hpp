@@ -37,10 +37,15 @@ private:
   int serial_fd_;
 
   rclcpp::Time last_cmd_time_;
+  rclcpp::Time kickstart_time_;
   bool has_cmd_;
   uint8_t last_speed_;
   uint8_t last_left_dir_;
   uint8_t last_right_dir_;
+
+  // 정지→움직임 전환 시 킥스타트 부스트
+  static constexpr int     KICKSTART_DURATION_MS_ = 350;
+  static constexpr uint8_t KICKSTART_PWM_         = 200;
 };
 
 #endif  // ROBOT_BASE__WHEEL_CONTROLLER_HPP_
