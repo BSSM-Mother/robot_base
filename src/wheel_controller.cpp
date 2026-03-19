@@ -132,7 +132,7 @@ uint8_t WheelController::directionFromSpeed(double speed) const {
   if (std::abs(speed) <= deadband_) {
     return kDirStop;
   }
-  return (speed >= 0.0) ? kDirFwd : kDirRev;
+  return (speed >= 0.0) ? kLeftFwd : kLeftRev;
 }
 
 uint8_t WheelController::speedToPwm(double speed) const {
