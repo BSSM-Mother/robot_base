@@ -56,9 +56,9 @@ WheelController::WheelController()
       is_braking_(false),
       brake_left_dir_(kDirStop),
       brake_right_dir_(kDirStop),
-      log_sent_speed_(255),  // 초기값을 불가능한 값으로 → 첫 전송 시 반드시 출력
-      log_sent_left_(255),
-      log_sent_right_(255) {
+      last_sent_speed_(255),  // 255: 불가능한 값 → 첫 전송 시 반드시 전송
+      last_sent_left_(255),
+      last_sent_right_(255) {
   cmd_vel_sub_ = this->create_subscription<geometry_msgs::msg::Twist>(
       "cmd_vel", 10,
       std::bind(&WheelController::cmdVelCallback, this, std::placeholders::_1));
@@ -201,19 +201,27 @@ void WheelController::sendMotorCommand(uint8_t speed, uint8_t left_dir, uint8_t 
     }
   }
 
-  if (effective_speed != log_sent_speed_ ||
-      effective_left   != log_sent_left_  ||
-      effective_right  != log_sent_right_) {
-    RCLCPP_INFO(this->get_logger(), "[MOTOR] send=%u (raw=%u) L=%u R=%u",
-      effective_speed, speed, effective_left, effective_right);
-    log_sent_speed_ = effective_speed;
-    log_sent_left_  = effective_left;
-    log_sent_right_ = effective_right;
+  // 직전과 동일한 명령이면 하드웨어 전송 생략
+  if (effective_speed == last_sent_speed_ &&
+      effective_left  == last_sent_left_  &&
+      effective_right == last_sent_right_) {
+    return;
   }
+  last_sent_speed_ = effective_speed;
+  last_sent_left_  = effective_left;
+  last_sent_right_ = effective_right;
 
   char buffer[64];
-  const int len = std::snprintf(buffer, sizeof(buffer), "%u,%u,%u\r\n", effective_speed,
-                                effective_left, effective_right);
+  int len;
+  if (effective_speed == kSpeedStop) {
+    RCLCPP_DEBUG(this->get_logger(), "[MOTOR] send=s (stop)");
+    len = std::snprintf(buffer, sizeof(buffer), "s\r\n");
+  } else {
+    RCLCPP_DEBUG(this->get_logger(), "[MOTOR] send=%u (raw=%u) L=%u R=%u",
+      effective_speed, speed, effective_left, effective_right);
+    len = std::snprintf(buffer, sizeof(buffer), "%u,%u,%u\r\n", effective_speed,
+                        effective_left, effective_right);
+  }
   if (len <= 0) {
     return;
   }

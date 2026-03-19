@@ -44,10 +44,10 @@ private:
   uint8_t last_left_dir_;
   uint8_t last_right_dir_;
 
-  // [MOTOR] 로그: 직전 전송값 기억 → 변경 시에만 출력
-  uint8_t log_sent_speed_;
-  uint8_t log_sent_left_;
-  uint8_t log_sent_right_;
+  // 직전 전송값 기억 → 중복 전송 방지
+  uint8_t last_sent_speed_;
+  uint8_t last_sent_left_;
+  uint8_t last_sent_right_;
 
   // 정지→움직임 전환 시 킥스타트 부스트
   static constexpr int     KICKSTART_DURATION_MS_ = 200;
