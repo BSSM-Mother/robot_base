@@ -11,8 +11,8 @@
 
 namespace {
 constexpr uint8_t kDirStop = 0;
-constexpr uint8_t kDirFwd = 1;
-constexpr uint8_t kDirRev = 2;
+constexpr uint8_t kDirFwd = 2;
+constexpr uint8_t kDirRev = 1;
 
 speed_t toTermiosBaud(int baud_rate) {
   switch (baud_rate) {
