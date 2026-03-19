@@ -36,7 +36,7 @@ WheelController::WheelController()
       deadband_(this->declare_parameter<double>("deadband", 0.02)),
       send_rate_hz_(this->declare_parameter<double>("send_rate_hz", 50.0)),
       cmd_timeout_ms_(this->declare_parameter<int>("cmd_timeout_ms", 300)),
-      min_pwm_(this->declare_parameter<int>("min_pwm", 150)),
+      min_pwm_(this->declare_parameter<int>("min_pwm", 100)),
       serial_fd_(-1),
       last_cmd_time_(this->now()),
       kickstart_time_(rclcpp::Time(0, 0, RCL_ROS_TIME)),
@@ -107,13 +107,35 @@ void WheelController::updateCommandFromTwist(double linear, double angular) {
   const double left_speed  = linear + (angular * half_track);
   const double right_speed = linear - (angular * half_track);
 
-  const uint8_t left_dir  = (std::abs(left_speed)  <= deadband_) ? kDirStop :
-                            (left_speed  >= 0.0) ? kFwd : kRev;
-  const uint8_t right_dir = (std::abs(right_speed) <= deadband_) ? kDirStop :
-                            (right_speed >= 0.0) ? kFwd : kRev;
+  // 방향: 부호만 보고 결정, PWM=0일 때 kDirStop으로 덮어씀 (아래)
+  const uint8_t left_dir  = (left_speed  >= 0.0) ? kFwd : kRev;
+  const uint8_t right_dir = (right_speed >= 0.0) ? kFwd : kRev;
 
-  const uint8_t left_pwm  = speedToPwm(left_speed);
-  const uint8_t right_pwm = speedToPwm(right_speed);
+  // 빠른 쪽에만 min_pwm 보정, 느린 쪽은 비례 스케일 → 차동 조향 보존
+  const double left_mag  = std::abs(left_speed);
+  const double right_mag = std::abs(right_speed);
+  const double max_mag   = std::max(left_mag, right_mag);
+
+  uint8_t left_pwm  = kSpeedStop;
+  uint8_t right_pwm = kSpeedStop;
+
+  if (max_mag > deadband_) {
+    const double clamped  = std::min(max_mag, max_linear_speed_);
+    const double ratio    = (max_linear_speed_ > 0.0) ? (clamped / max_linear_speed_) : 0.0;
+    const int    fast_raw = static_cast<int>(std::lround(ratio * 255.0));
+    const int    fast_eff = std::max(fast_raw, min_pwm_);  // 빠른 쪽: min_pwm 보정
+
+    const double slow_frac = std::min(left_mag, right_mag) / max_mag;
+    const int    slow_eff  = static_cast<int>(std::round(fast_eff * slow_frac));  // 느린 쪽: 비례
+
+    if (left_mag >= right_mag) {
+      left_pwm  = static_cast<uint8_t>(std::clamp(fast_eff, 0, 255));
+      right_pwm = static_cast<uint8_t>(std::clamp(slow_eff, 0, 255));
+    } else {
+      right_pwm = static_cast<uint8_t>(std::clamp(fast_eff, 0, 255));
+      left_pwm  = static_cast<uint8_t>(std::clamp(slow_eff, 0, 255));
+    }
+  }
 
   const bool was_stopped = (last_left_pwm_ == kSpeedStop && last_right_pwm_ == kSpeedStop);
   const bool now_moving  = (left_pwm > kSpeedStop || right_pwm > kSpeedStop);
@@ -147,17 +169,6 @@ void WheelController::updateCommandFromTwist(double linear, double angular) {
   has_cmd_ = true;
 }
 
-uint8_t WheelController::speedToPwm(double speed) const {
-  const double mag = std::abs(speed);
-  if (mag <= deadband_) {
-    return kSpeedStop;
-  }
-  const double clamped = std::min(mag, max_linear_speed_);
-  const double ratio   = (max_linear_speed_ <= 0.0) ? 0.0 : (clamped / max_linear_speed_);
-  const int    pwm     = static_cast<int>(std::lround(ratio * 255.0));
-  const int    effective = (pwm > 0) ? std::max(pwm, min_pwm_) : 0;
-  return static_cast<uint8_t>(std::clamp(effective, 0, 255));
-}
 
 void WheelController::sendMotorCommand(uint8_t rspeed, uint8_t lspeed,
                                        uint8_t rdir,   uint8_t ldir) {
@@ -173,11 +184,28 @@ void WheelController::sendMotorCommand(uint8_t rspeed, uint8_t lspeed,
   const bool any_moving = (rspeed > kSpeedStop || lspeed > kSpeedStop);
 
   if (any_moving) {
-    // 킥스타트: 정지→움직임 직후 KICKSTART_DURATION_MS_ 동안 부스트
+    // 킥스타트: 빠른 쪽만 부스트하고 느린 쪽은 비례 유지 → 차동 조향 보존
     const int64_t elapsed_ms = (this->now() - kickstart_time_).nanoseconds() / 1000000LL;
     if (elapsed_ms < KICKSTART_DURATION_MS_) {
-      if (rspeed > kSpeedStop) eff_rspeed = std::max(rspeed, KICKSTART_PWM_);
-      if (lspeed > kSpeedStop) eff_lspeed = std::max(lspeed, KICKSTART_PWM_);
+      const uint8_t fast_orig = std::max(rspeed, lspeed);
+      if (fast_orig > kSpeedStop) {
+        const int fast_kick = std::max(static_cast<int>(fast_orig), static_cast<int>(KICKSTART_PWM_));
+        if (rspeed >= lspeed) {
+          eff_rspeed = static_cast<uint8_t>(fast_kick);
+          eff_lspeed = (lspeed > kSpeedStop)
+            ? static_cast<uint8_t>(std::clamp(
+                static_cast<int>(std::round(fast_kick * lspeed / static_cast<double>(fast_orig))),
+                0, 255))
+            : kSpeedStop;
+        } else {
+          eff_lspeed = static_cast<uint8_t>(fast_kick);
+          eff_rspeed = (rspeed > kSpeedStop)
+            ? static_cast<uint8_t>(std::clamp(
+                static_cast<int>(std::round(fast_kick * rspeed / static_cast<double>(fast_orig))),
+                0, 255))
+            : kSpeedStop;
+        }
+      }
     }
   } else if (is_braking_) {
     // 브레이크: 움직임→정지 직후 BRAKE_DURATION_MS_ 동안 역방향 PWM

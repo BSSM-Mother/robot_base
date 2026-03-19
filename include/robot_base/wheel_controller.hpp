@@ -20,7 +20,6 @@ private:
   void readSerialResponses();
   bool openSerialPort();
   void closeSerialPort();
-  uint8_t speedToPwm(double speed) const;
 
   rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_sub_;
   rclcpp::TimerBase::SharedPtr send_timer_;
