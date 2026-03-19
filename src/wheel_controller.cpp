@@ -43,7 +43,7 @@ WheelController::WheelController()
       deadband_(this->declare_parameter<double>("deadband", 0.02)),
       send_rate_hz_(this->declare_parameter<double>("send_rate_hz", 20.0)),
       cmd_timeout_ms_(this->declare_parameter<int>("cmd_timeout_ms", 300)),
-      min_pwm_(this->declare_parameter<int>("min_pwm", 80)),
+      min_pwm_(this->declare_parameter<int>("min_pwm", 120)),
       serial_fd_(-1),
       last_cmd_time_(this->now()),
       kickstart_time_(rclcpp::Time(0, 0, RCL_ROS_TIME)),
