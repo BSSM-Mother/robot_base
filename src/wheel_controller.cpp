@@ -41,7 +41,7 @@ WheelController::WheelController()
       wheel_distance_(this->declare_parameter<double>("wheel_distance", 0.25)),
       max_linear_speed_(this->declare_parameter<double>("max_linear_speed", 0.5)),
       deadband_(this->declare_parameter<double>("deadband", 0.02)),
-      send_rate_hz_(this->declare_parameter<double>("send_rate_hz", 20.0)),
+      send_rate_hz_(this->declare_parameter<double>("send_rate_hz", 50.0)),
       cmd_timeout_ms_(this->declare_parameter<int>("cmd_timeout_ms", 300)),
       min_pwm_(this->declare_parameter<int>("min_pwm", 120)),
       serial_fd_(-1),
@@ -87,6 +87,9 @@ void WheelController::timerCallback() {
   const auto now = this->now();
   if (has_cmd_ && (now - last_cmd_time_).nanoseconds() >
                     static_cast<int64_t>(cmd_timeout_ms_) * 1000000LL) {
+    RCLCPP_INFO(this->get_logger(),
+      "[TIMEOUT] cmd_vel 없음 → 정지 (last_speed=%u, elapsed=%.0fms)",
+      last_speed_, (now - last_cmd_time_).nanoseconds() / 1e6);
     last_speed_ = 0;
     last_left_dir_ = kDirStop;
     last_right_dir_ = kDirStop;
@@ -113,6 +116,8 @@ void WheelController::updateCommandFromTwist(double linear, double angular) {
   // 정지→움직임 전환 감지: 킥스타트 타이머 시작
   if (last_speed_ == 0 && pwm > 0) {
     kickstart_time_ = this->now();
+    RCLCPP_INFO(this->get_logger(), "[KICKSTART] 시작 (pwm=%u → boost=%u for %dms)",
+      pwm, KICKSTART_PWM_, KICKSTART_DURATION_MS_);
   }
 
   if (pwm == 0) {
@@ -153,7 +158,7 @@ void WheelController::sendMotorCommand(uint8_t speed, uint8_t left_dir, uint8_t 
     return;
   }
 
-  // 킥스타트: 정지→움직임 직후 350ms 동안 최소 200 PWM으로 부스트
+  // 킥스타트: 정지→움직임 직후 KICKSTART_DURATION_MS_ 동안 부스트
   uint8_t effective_speed = speed;
   if (speed > 0) {
     const int64_t elapsed_ms = (this->now() - kickstart_time_).nanoseconds() / 1000000LL;
@@ -161,6 +166,10 @@ void WheelController::sendMotorCommand(uint8_t speed, uint8_t left_dir, uint8_t 
       effective_speed = std::max(speed, KICKSTART_PWM_);
     }
   }
+
+  RCLCPP_INFO(this->get_logger(),
+    "[MOTOR] send=%u (raw=%u) L=%u R=%u",
+    effective_speed, speed, left_dir, right_dir);
 
   char buffer[64];
   const int len = std::snprintf(buffer, sizeof(buffer), "%u,%u,%u\r\n", effective_speed, left_dir,
