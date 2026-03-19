@@ -11,21 +11,20 @@ class WheelController : public rclcpp::Node {
 public:
   WheelController();
   ~WheelController() override;
-  
+
 private:
   void cmdVelCallback(const geometry_msgs::msg::Twist::SharedPtr msg);
   void timerCallback();
   void updateCommandFromTwist(double linear, double angular);
-  void sendMotorCommand(uint8_t speed, uint8_t left_dir, uint8_t right_dir);
+  void sendMotorCommand(uint8_t rspeed, uint8_t lspeed, uint8_t rdir, uint8_t ldir);
   void readSerialResponses();
   bool openSerialPort();
   void closeSerialPort();
-  uint8_t directionFromSpeed(double speed) const;
   uint8_t speedToPwm(double speed) const;
-  
+
   rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_sub_;
   rclcpp::TimerBase::SharedPtr send_timer_;
-  
+
   std::string serial_port_;
   int baud_rate_;
   double wheel_distance_;
@@ -33,21 +32,23 @@ private:
   double deadband_;
   double send_rate_hz_;
   int cmd_timeout_ms_;
-  int min_pwm_;  // 움직임이 있을 때 최소 PWM (너무 낮으면 모터가 못 돌아감)
+  int min_pwm_;
 
   int serial_fd_;
 
   rclcpp::Time last_cmd_time_;
   rclcpp::Time kickstart_time_;
   bool has_cmd_;
-  uint8_t last_speed_;
+  uint8_t last_left_pwm_;
+  uint8_t last_right_pwm_;
   uint8_t last_left_dir_;
   uint8_t last_right_dir_;
 
   // 직전 전송값 기억 → 중복 전송 방지
-  uint8_t last_sent_speed_;
-  uint8_t last_sent_left_;
-  uint8_t last_sent_right_;
+  uint8_t last_sent_rspeed_;
+  uint8_t last_sent_lspeed_;
+  uint8_t last_sent_rdir_;
+  uint8_t last_sent_ldir_;
 
   // 정지→움직임 전환 시 킥스타트 부스트
   static constexpr int     KICKSTART_DURATION_MS_ = 200;
