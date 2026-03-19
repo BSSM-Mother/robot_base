@@ -12,7 +12,7 @@
 namespace {
 constexpr uint8_t kSpeedStop = 0;
 constexpr uint8_t kDirStop   = 0;
-constexpr uint8_t kFwd       = 1;  // 전진 (펌웨어가 좌우 반전 처리)
+constexpr uint8_t kFwd       = 1;  // 전진
 constexpr uint8_t kRev       = 2;  // 후진
 
 speed_t toTermiosBaud(int baud_rate) {
@@ -240,7 +240,7 @@ void WheelController::sendMotorCommand(uint8_t rspeed, uint8_t lspeed,
     RCLCPP_DEBUG(this->get_logger(), "[MOTOR] R=%u(%u) L=%u(%u)",
       eff_rspeed, eff_rdir, eff_lspeed, eff_ldir);
     len = std::snprintf(buffer, sizeof(buffer), "%u,%u,%u,%u\r\n",
-                        eff_rspeed, eff_lspeed, eff_rdir, eff_ldir);
+                        eff_lspeed, eff_rspeed, eff_ldir, eff_rdir);
   }
 
   if (len <= 0) return;
